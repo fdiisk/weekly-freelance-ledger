@@ -26,6 +26,7 @@ import { toast } from "sonner";
 import PageLayout from "@/components/layout/PageLayout";
 import ClientForm from "@/components/clients/ClientForm";
 import SubClientForm from "@/components/clients/SubClientForm";
+import CsvImporter from "@/components/clients/CsvImporter";
 import { useApp } from "@/context/AppContext";
 import { Client, SubClient } from "@/types";
 import { formatCurrency } from "@/lib/utils";
@@ -102,6 +103,18 @@ const Clients: React.FC = () => {
     setIsSubClientDialogOpen(false);
   };
 
+  const handleImportClients = (clientData: Omit<Client, "id">[]) => {
+    clientData.forEach(client => {
+      addClient(client);
+    });
+  };
+
+  const handleImportSubClients = (subClientData: Omit<SubClient, "id">[]) => {
+    subClientData.forEach(subClient => {
+      addSubClient(subClient);
+    });
+  };
+
   const getClientName = (clientId: string) => {
     const client = clients.find((c) => c.id === clientId);
     return client ? client.name : "Unknown Client";
@@ -115,18 +128,31 @@ const Clients: React.FC = () => {
             <TabsTrigger value="clients">Clients</TabsTrigger>
             <TabsTrigger value="subclients">Sub-Clients</TabsTrigger>
           </TabsList>
-          <div>
+          <div className="flex gap-2">
             {activeTab === "clients" && (
-              <Button onClick={handleAddClient}>
-                <PlusIcon className="mr-2 h-4 w-4" />
-                Add Client
-              </Button>
+              <>
+                <CsvImporter 
+                  type="clients" 
+                  onImportClients={handleImportClients} 
+                />
+                <Button onClick={handleAddClient}>
+                  <PlusIcon className="mr-2 h-4 w-4" />
+                  Add Client
+                </Button>
+              </>
             )}
             {activeTab === "subclients" && (
-              <Button onClick={handleAddSubClient} disabled={clients.length === 0}>
-                <PlusIcon className="mr-2 h-4 w-4" />
-                Add Sub-Client
-              </Button>
+              <>
+                <CsvImporter 
+                  type="subclients" 
+                  onImportSubClients={handleImportSubClients}
+                  clients={clients}
+                />
+                <Button onClick={handleAddSubClient} disabled={clients.length === 0}>
+                  <PlusIcon className="mr-2 h-4 w-4" />
+                  Add Sub-Client
+                </Button>
+              </>
             )}
           </div>
         </div>
@@ -145,7 +171,7 @@ const Clients: React.FC = () => {
                 {clients.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={3} className="text-center py-4">
-                      No clients found. Click "Add Client" to create your first client.
+                      No clients found. Click "Add Client" to create your first client or import from CSV.
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -195,7 +221,7 @@ const Clients: React.FC = () => {
                 {subClients.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={3} className="text-center py-4">
-                      No sub-clients found. Click "Add Sub-Client" to create your first sub-client.
+                      No sub-clients found. Click "Add Sub-Client" to create your first sub-client or import from CSV.
                     </TableCell>
                   </TableRow>
                 ) : (
