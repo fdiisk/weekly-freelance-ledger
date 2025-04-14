@@ -25,9 +25,10 @@ import WorkEntryForm from "@/components/work-entries/WorkEntryForm";
 import { useApp } from "@/context/AppContext";
 import { WorkEntry } from "@/types";
 import { formatCurrency } from "@/lib/utils";
+import CsvImporter from "@/components/clients/CsvImporter";
 
 const WorkEntries: React.FC = () => {
-  const { clients, subClients, workEntries, addWorkEntry, updateWorkEntry, deleteWorkEntry } = useApp();
+  const { clients, subClients, workEntries, addWorkEntry, updateWorkEntry, deleteWorkEntry, importWorkEntries } = useApp();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<WorkEntry | undefined>(undefined);
 
@@ -86,10 +87,18 @@ const WorkEntries: React.FC = () => {
     <PageLayout
       title="Work Entries"
       actions={
-        <Button onClick={handleAdd}>
-          <PlusIcon className="mr-2 h-4 w-4" />
-          Add Entry
-        </Button>
+        <div className="flex items-center gap-2">
+          <CsvImporter 
+            type="workentries" 
+            onImportWorkEntries={importWorkEntries} 
+            clients={clients} 
+            subClients={subClients} 
+          />
+          <Button onClick={handleAdd}>
+            <PlusIcon className="mr-2 h-4 w-4" />
+            Add Entry
+          </Button>
+        </div>
       }
     >
       <div className="rounded-md border">

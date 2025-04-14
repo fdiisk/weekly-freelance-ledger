@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "sonner";
@@ -20,6 +19,9 @@ interface AppContextType {
   updateWorkEntry: (workEntry: WorkEntry) => void;
   deleteWorkEntry: (id: string) => void;
   generateWeeklyInvoice: () => void;
+  importWorkEntries: (entries: Omit<WorkEntry, "id">[]) => void;
+  importClients: (clients: Omit<Client, "id">[]) => void;
+  importSubClients: (subClients: Omit<SubClient, "id">[]) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -56,7 +58,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const storedEntries = localStorage.getItem(STORAGE_KEYS.WORK_ENTRIES);
     const initialEntries = storedEntries ? JSON.parse(storedEntries) : [];
     
-    // Convert stored date strings to Date objects
     return initialEntries.map((entry: any) => ({
       ...entry,
       date: new Date(entry.date),
@@ -67,7 +68,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const storedInvoices = localStorage.getItem(STORAGE_KEYS.INVOICES);
     const initialInvoices = storedInvoices ? JSON.parse(storedInvoices) : [];
     
-    // Convert stored date strings to Date objects
     return initialInvoices.map((invoice: any) => ({
       ...invoice,
       startDate: new Date(invoice.startDate),
@@ -80,7 +80,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
   });
 
-  // Save data to localStorage when it changes
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.CLIENTS, JSON.stringify(clients));
   }, [clients]);
@@ -106,7 +105,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateClient = (client: Client) => {
     setClients(clients.map(c => (c.id === client.id ? client : c)));
     
-    // Update work entries rate if client rate changed
     const clientOld = clients.find(c => c.id === client.id);
     if (clientOld && clientOld.rate !== client.rate) {
       setWorkEntries(
@@ -232,7 +230,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setInvoices([...invoices, newInvoice]);
     
-    // Mark entries as invoiced
     setWorkEntries(
       workEntries.map(entry => {
         if (weekEntries.some(we => we.id === entry.id)) {
@@ -243,6 +240,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
 
     toast.success(`Invoice ${newInvoice.invoiceNumber} generated for ${weekEntries.length} entries`);
+  };
+
+  const importClients = (newClients: Omit<Client, "id">[]) => {
+    const clientsToAdd = newClients.map(client => ({ ...client, id: uuidv4() }));
+    setClients([...clients, ...clientsToAdd]);
+    toast.success(`Imported ${clientsToAdd.length} clients`);
+  };
+
+  const importSubClients = (newSubClients: Omit<SubClient, "id">[]) => {
+    const subClientsToAdd = newSubClients.map(subClient => ({ ...subClient, id: uuidv4() }));
+    setSubClients([...subClients, ...subClientsToAdd]);
+    toast.success(`Imported ${subClientsToAdd.length} sub-clients`);
+  };
+  
+  const importWorkEntries = (newEntries: Omit<WorkEntry, "id">[]) => {
+    const entriesToAdd = newEntries.map(entry => ({ ...entry, id: uuidv4() }));
+    setWorkEntries([...workEntries, ...entriesToAdd]);
+    toast.success(`Imported ${entriesToAdd.length} work entries`);
   };
 
   return (
@@ -262,6 +277,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateWorkEntry,
         deleteWorkEntry,
         generateWeeklyInvoice,
+        importClients,
+        importSubClients,
+        importWorkEntries,
       }}
     >
       {children}

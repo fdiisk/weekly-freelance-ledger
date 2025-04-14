@@ -4,20 +4,24 @@ import { Button } from "@/components/ui/button";
 import { Upload } from "lucide-react";
 import { toast } from "sonner";
 import Papa from "papaparse";
-import { Client, SubClient } from "@/types";
+import { Client, SubClient, WorkEntry } from "@/types";
 
 interface CsvImporterProps {
-  type: "clients" | "subclients";
+  type: "clients" | "subclients" | "workentries";
   onImportClients?: (clients: Omit<Client, "id">[]) => void;
   onImportSubClients?: (subClients: Omit<SubClient, "id">[]) => void;
+  onImportWorkEntries?: (workEntries: Omit<WorkEntry, "id">[]) => void;
   clients?: Client[];
+  subClients?: SubClient[];
 }
 
 const CsvImporter: React.FC<CsvImporterProps> = ({
   type,
   onImportClients,
   onImportSubClients,
+  onImportWorkEntries,
   clients,
+  subClients,
 }) => {
   const [isImporting, setIsImporting] = useState(false);
 
@@ -42,6 +46,8 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
             handleClientImport(results.data);
           } else if (type === "subclients") {
             handleSubClientImport(results.data);
+          } else if (type === "workentries") {
+            handleWorkEntryImport(results.data);
           }
           
           // Reset the file input
@@ -63,24 +69,31 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
       return;
     }
 
-    // Validate CSV structure for clients
-    const requiredFields = ["name", "rate"];
-    const missingFields = requiredFields.filter(
-      (field) => !Object.keys(data[0]).includes(field)
-    );
+    // Looking for Client column (column C)
+    const clients: Omit<Client, "id">[] = [];
+    const clientNames = new Set<string>();
+
+    data.forEach((row) => {
+      // The column might be named "Client", "C", or another variation
+      const clientName = row.Client || row.client || row.C || row.c;
+      const rate = parseFloat(row.rate || row.Rate || row.k || row.K || "0");
+      
+      if (clientName && !clientNames.has(clientName)) {
+        clientNames.add(clientName);
+        clients.push({
+          name: String(clientName),
+          rate: isNaN(rate) ? 0 : rate,
+        });
+      }
+    });
     
-    if (missingFields.length) {
-      toast.error(`Missing required fields: ${missingFields.join(", ")}`);
+    if (clients.length === 0) {
+      toast.error("No valid client data found in CSV");
       return;
     }
-
-    const clients: Omit<Client, "id">[] = data.map((row) => ({
-      name: String(row.name),
-      rate: parseFloat(row.rate) || 0,
-    }));
     
     onImportClients(clients);
-    toast.success(`Successfully imported ${clients.length} clients`);
+    toast.success(`Successfully extracted ${clients.length} unique clients`);
   };
 
   const handleSubClientImport = (data: any[]) => {
@@ -91,46 +104,165 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
       return;
     }
 
-    // Validate CSV structure for sub-clients
-    const requiredFields = ["name", "clientName"];
-    const missingFields = requiredFields.filter(
-      (field) => !Object.keys(data[0]).includes(field)
-    );
-    
-    if (missingFields.length) {
-      toast.error(`Missing required fields: ${missingFields.join(", ")}`);
-      return;
-    }
-
     // Map client names to IDs
     const clientMap = new Map(clients.map(client => [client.name.toLowerCase(), client.id]));
     
     const validSubClients: Omit<SubClient, "id">[] = [];
+    const subClientMap = new Set<string>();
     const invalidRows: number[] = [];
     
     data.forEach((row, index) => {
-      const clientName = String(row.clientName).toLowerCase();
+      // Look for Client and Subclient columns (columns C and D)
+      const clientName = String(row.Client || row.client || row.C || row.c || "").toLowerCase();
+      const subClientName = row.Subclient || row.subclient || row.d || row.D;
+      
+      if (!clientName || !subClientName) {
+        invalidRows.push(index + 1); // +1 for human-readable row numbers
+        return;
+      }
+      
       const clientId = clientMap.get(clientName);
       
-      if (clientId) {
+      if (clientId && !subClientMap.has(`${clientId}-${subClientName}`)) {
+        subClientMap.add(`${clientId}-${subClientName}`);
         validSubClients.push({
-          name: String(row.name),
+          name: String(subClientName),
           clientId,
         });
-      } else {
-        invalidRows.push(index + 1); // +1 for human-readable row numbers (header is row 1)
+      } else if (!clientId) {
+        invalidRows.push(index + 1);
       }
     });
     
     if (invalidRows.length) {
-      toast.warning(`Skipped ${invalidRows.length} rows with unknown client names (rows: ${invalidRows.join(", ")})`);
+      toast.warning(`Skipped ${invalidRows.length} rows with missing or unknown client names (rows: ${invalidRows.length > 10 ? invalidRows.slice(0, 10).join(", ") + "..." : invalidRows.join(", ")})`);
     }
     
     if (validSubClients.length) {
       onImportSubClients(validSubClients);
-      toast.success(`Successfully imported ${validSubClients.length} sub-clients`);
+      toast.success(`Successfully extracted ${validSubClients.length} unique sub-clients`);
     } else {
       toast.error("No valid sub-clients found in CSV file");
+    }
+  };
+
+  const handleWorkEntryImport = (data: any[]) => {
+    if (!onImportWorkEntries || !clients || !subClients) return;
+    
+    if (!data.length) {
+      toast.error("No data found in CSV file");
+      return;
+    }
+
+    // Create lookup maps
+    const clientMap = new Map(clients.map(client => [client.name.toLowerCase(), client.id]));
+    const subClientMap = new Map();
+    
+    // Populate sub-client map with clientId-subClientName -> subClientId
+    subClients.forEach(sc => {
+      const client = clients.find(c => c.id === sc.clientId);
+      if (client) {
+        subClientMap.set(`${client.name.toLowerCase()}-${sc.name.toLowerCase()}`, sc.id);
+      }
+    });
+    
+    const validEntries: Omit<WorkEntry, "id">[] = [];
+    const invalidRows: number[] = [];
+    
+    data.forEach((row, index) => {
+      try {
+        // Map CSV columns to our data model
+        // B (date), C (Client), D (Subclient), E (project), F (notes), 
+        // H (hours), I (bill), J (invoice), K (rate), L (paid)
+        
+        const dateValue = row.B || row.Date || row.date;
+        const clientName = String(row.C || row.Client || row.client || "").toLowerCase();
+        const subClientName = String(row.D || row.d || row.Subclient || row.subclient || "").toLowerCase();
+        const project = row.E || row.Project || row.project || "";
+        const notes = row.F || row.Notes || row.notes || row.f || "";
+        const hours = parseFloat(row.H || row.Hours || row.hours || row.h || "0");
+        const rate = parseFloat(row.K || row.Rate || row.rate || row.k || "0");
+        const invoiced = (row.J || row.Invoice || row.invoice || row.j || "").toLowerCase() === "yes";
+        const paid = (row.L || row.Paid || row.paid || row.l || "").toLowerCase() === "yes";
+        
+        // Parse date - handle different formats
+        let date: Date;
+        try {
+          // Try to parse as DD/MM/YYYY
+          const dateParts = dateValue.split(/[\/\-\.]/);
+          if (dateParts.length === 3) {
+            // Handle both DD/MM/YYYY and MM/DD/YYYY based on reasonable ranges
+            const firstPart = parseInt(dateParts[0]);
+            const secondPart = parseInt(dateParts[1]);
+            
+            if (firstPart > 12) { // First part must be day
+              date = new Date(`${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`); // YYYY-MM-DD
+            } else {
+              date = new Date(`${dateParts[2]}-${firstPart}-${secondPart}`); // YYYY-MM-DD
+            }
+          } else {
+            // Try as direct date string
+            date = new Date(dateValue);
+          }
+          
+          // Check if date is valid
+          if (isNaN(date.getTime())) {
+            throw new Error("Invalid date");
+          }
+        } catch (error) {
+          date = new Date(); // Default to current date if parsing fails
+          toast.warning(`Row ${index + 1}: Could not parse date "${dateValue}", using today's date instead.`);
+        }
+        
+        const clientId = clientMap.get(clientName);
+        if (!clientId) {
+          invalidRows.push(index + 1);
+          return;
+        }
+        
+        // Find subClientId using the combined key
+        const subClientId = subClientMap.get(`${clientName}-${subClientName}`);
+        if (!subClientId) {
+          invalidRows.push(index + 1);
+          return;
+        }
+        
+        // Validate hours
+        if (isNaN(hours) || hours <= 0) {
+          invalidRows.push(index + 1);
+          return;
+        }
+        
+        // Create work entry
+        const bill = hours * rate;
+        
+        validEntries.push({
+          date,
+          clientId,
+          subClientId,
+          project: String(project),
+          taskDescription: String(notes),
+          fileAttachments: [],
+          hours,
+          rate,
+          bill,
+          invoiced,
+          paid,
+        });
+      } catch (error) {
+        invalidRows.push(index + 1);
+      }
+    });
+    
+    if (invalidRows.length) {
+      toast.warning(`Skipped ${invalidRows.length} invalid rows (rows: ${invalidRows.length > 10 ? invalidRows.slice(0, 10).join(", ") + "..." : invalidRows.join(", ")})`);
+    }
+    
+    if (validEntries.length) {
+      onImportWorkEntries(validEntries);
+      toast.success(`Successfully imported ${validEntries.length} work entries`);
+    } else {
+      toast.error("No valid work entries found in CSV file");
     }
   };
 
@@ -148,7 +280,11 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
         <Button
           variant="outline"
           size="sm"
-          disabled={isImporting || (type === "subclients" && (!clients || clients.length === 0))}
+          disabled={
+            isImporting || 
+            (type === "subclients" && (!clients || clients.length === 0)) ||
+            (type === "workentries" && (!clients || !subClients || clients.length === 0 || subClients.length === 0))
+          }
           asChild
         >
           <span className="cursor-pointer">
