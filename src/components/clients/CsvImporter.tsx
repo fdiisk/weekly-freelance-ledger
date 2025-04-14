@@ -32,7 +32,7 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
     setIsImporting(true);
 
     Papa.parse(file, {
-      header: true,
+      header: false, // Changed to false since we're dealing with column letters
       skipEmptyLines: true,
       complete: (results) => {
         if (results.errors.length) {
@@ -42,12 +42,15 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
         }
 
         try {
+          // Skip header row if present
+          const data = results.data.length > 0 ? results.data.slice(1) : [];
+          
           if (type === "clients") {
-            handleClientImport(results.data);
+            handleClientImport(data);
           } else if (type === "subclients") {
-            handleSubClientImport(results.data);
+            handleSubClientImport(data);
           } else if (type === "workentries") {
-            handleWorkEntryImport(results.data);
+            handleWorkEntryImport(data);
           }
           
           // Reset the file input
@@ -74,11 +77,11 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
     const clientNames = new Set<string>();
 
     data.forEach((row) => {
-      // The column might be named "Client", "C", or another variation
-      const clientName = row.Client || row.client || row.C || row.c;
-      const rate = parseFloat(row.rate || row.Rate || row.k || row.K || "0");
+      // Get client name from column C (index 2)
+      const clientName = row[2]; // C column (0-indexed)
+      const rate = parseFloat(row[10] || "0"); // K column (0-indexed, index 10)
       
-      if (clientName && !clientNames.has(clientName)) {
+      if (clientName && typeof clientName === 'string' && !clientNames.has(clientName)) {
         clientNames.add(clientName);
         clients.push({
           name: String(clientName),
@@ -112,12 +115,12 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
     const invalidRows: number[] = [];
     
     data.forEach((row, index) => {
-      // Look for Client and Subclient columns (columns C and D)
-      const clientName = String(row.Client || row.client || row.C || row.c || "").toLowerCase();
-      const subClientName = row.Subclient || row.subclient || row.d || row.D;
+      // Get client name from column C (index 2) and subclient from column D (index 3)
+      const clientName = String(row[2] || "").toLowerCase(); // C column
+      const subClientName = row[3]; // D column
       
       if (!clientName || !subClientName) {
-        invalidRows.push(index + 1); // +1 for human-readable row numbers
+        invalidRows.push(index + 2); // +2 for human-readable row numbers (1-indexed + header)
         return;
       }
       
@@ -130,7 +133,7 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
           clientId,
         });
       } else if (!clientId) {
-        invalidRows.push(index + 1);
+        invalidRows.push(index + 2);
       }
     });
     
@@ -171,25 +174,36 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
     
     data.forEach((row, index) => {
       try {
+        if (!row[2] || !row[3]) { // If C or D column is empty, skip
+          invalidRows.push(index + 2);
+          return;
+        }
+        
         // Map CSV columns to our data model
         // B (date), C (Client), D (Subclient), E (project), F (notes), 
         // H (hours), I (bill), J (invoice), K (rate), L (paid)
         
-        const dateValue = row.B || row.Date || row.date;
-        const clientName = String(row.C || row.Client || row.client || "").toLowerCase();
-        const subClientName = String(row.D || row.d || row.Subclient || row.subclient || "").toLowerCase();
-        const project = row.E || row.Project || row.project || "";
-        const notes = row.F || row.Notes || row.notes || row.f || "";
-        const hours = parseFloat(row.H || row.Hours || row.hours || row.h || "0");
-        const rate = parseFloat(row.K || row.Rate || row.rate || row.k || "0");
-        const invoiced = (row.J || row.Invoice || row.invoice || row.j || "").toLowerCase() === "yes";
-        const paid = (row.L || row.Paid || row.paid || row.l || "").toLowerCase() === "yes";
+        const dateValue = row[1]; // B column
+        const clientName = String(row[2] || "").toLowerCase(); // C column
+        const subClientName = String(row[3] || "").toLowerCase(); // D column
+        const project = row[4] || ""; // E column
+        const notes = row[5] || ""; // F column
+        const hours = parseFloat(row[7] || "0"); // H column
+        const rate = parseFloat(row[10] || "0"); // K column
+        const invoiced = String(row[9] || "").toLowerCase() === "yes"; // J column
+        const paid = String(row[11] || "").toLowerCase() === "yes"; // L column
         
         // Parse date - handle different formats
         let date: Date;
         try {
+          if (typeof dateValue !== 'string' || !dateValue) {
+            throw new Error("Invalid date");
+          }
+          
           // Try to parse as DD/MM/YYYY
-          const dateParts = dateValue.split(/[\/\-\.]/);
+          const dateOnly = dateValue.split(' ')[0]; // Extract date part in case of "DD/MM/YYYY HH:MM"
+          const dateParts = dateOnly.split(/[\/\-\.]/);
+          
           if (dateParts.length === 3) {
             // Handle both DD/MM/YYYY and MM/DD/YYYY based on reasonable ranges
             const firstPart = parseInt(dateParts[0]);
@@ -197,6 +211,8 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
             
             if (firstPart > 12) { // First part must be day
               date = new Date(`${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`); // YYYY-MM-DD
+            } else if (firstPart <= 31 && secondPart <= 12) {
+              date = new Date(`${dateParts[2]}-${secondPart}-${firstPart}`); // YYYY-MM-DD
             } else {
               date = new Date(`${dateParts[2]}-${firstPart}-${secondPart}`); // YYYY-MM-DD
             }
@@ -211,25 +227,28 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
           }
         } catch (error) {
           date = new Date(); // Default to current date if parsing fails
-          toast.warning(`Row ${index + 1}: Could not parse date "${dateValue}", using today's date instead.`);
+          console.log(`Row ${index + 2}: Could not parse date "${dateValue}", using today's date instead.`);
         }
         
         const clientId = clientMap.get(clientName);
         if (!clientId) {
-          invalidRows.push(index + 1);
+          console.log(`Row ${index + 2}: Client "${clientName}" not found`);
+          invalidRows.push(index + 2);
           return;
         }
         
         // Find subClientId using the combined key
         const subClientId = subClientMap.get(`${clientName}-${subClientName}`);
         if (!subClientId) {
-          invalidRows.push(index + 1);
+          console.log(`Row ${index + 2}: SubClient "${subClientName}" not found for client "${clientName}"`);
+          invalidRows.push(index + 2);
           return;
         }
         
         // Validate hours
         if (isNaN(hours) || hours <= 0) {
-          invalidRows.push(index + 1);
+          console.log(`Row ${index + 2}: Invalid hours value "${row[7]}"`);
+          invalidRows.push(index + 2);
           return;
         }
         
@@ -250,7 +269,8 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
           paid,
         });
       } catch (error) {
-        invalidRows.push(index + 1);
+        console.log(`Error processing row ${index + 2}:`, error);
+        invalidRows.push(index + 2);
       }
     });
     

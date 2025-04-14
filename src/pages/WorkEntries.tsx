@@ -1,4 +1,3 @@
-
 import React, { useState } from "react";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
@@ -67,7 +66,6 @@ const WorkEntries: React.FC = () => {
     setIsDialogOpen(false);
   };
 
-  // Get client and subclient names
   const getClientName = (clientId: string) => {
     const client = clients.find((c) => c.id === clientId);
     return client ? client.name : "Unknown Client";
@@ -78,7 +76,6 @@ const WorkEntries: React.FC = () => {
     return subClient ? subClient.name : "Unknown Sub-client";
   };
 
-  // Sort work entries by date (newest first)
   const sortedEntries = [...workEntries].sort((a, b) => {
     return new Date(b.date).getTime() - new Date(a.date).getTime();
   });
