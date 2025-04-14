@@ -32,7 +32,7 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
     setIsImporting(true);
 
     Papa.parse(file, {
-      header: false, // Changed to false since we're dealing with column letters
+      header: true, // Changed to true to use column names
       skipEmptyLines: true,
       complete: (results) => {
         if (results.errors.length) {
@@ -42,15 +42,14 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
         }
 
         try {
-          // Skip header row if present
-          const data = results.data.length > 0 ? results.data.slice(1) : [];
+          console.log("CSV Parse Result:", results.data);
           
           if (type === "clients") {
-            handleClientImport(data);
+            handleClientImport(results.data);
           } else if (type === "subclients") {
-            handleSubClientImport(data);
+            handleSubClientImport(results.data);
           } else if (type === "workentries") {
-            handleWorkEntryImport(data);
+            handleWorkEntryImport(results.data);
           }
           
           // Reset the file input
@@ -72,19 +71,33 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
       return;
     }
 
-    // Looking for Client column (column C)
+    // Expected column: "Clients"
     const clients: Omit<Client, "id">[] = [];
     const clientNames = new Set<string>();
-
+    
     data.forEach((row) => {
-      // Get client name from column C (index 2)
-      const clientName = row[2]; // C column (0-indexed)
-      const rate = parseFloat(row[10] || "0"); // K column (0-indexed, index 10)
+      // Check for expected column names with case insensitivity
+      const clientsColumn = Object.keys(row).find(key => 
+        key.toLowerCase() === "clients" || 
+        key.toLowerCase() === "client"
+      );
       
-      if (clientName && typeof clientName === 'string' && !clientNames.has(clientName)) {
+      const rateColumn = Object.keys(row).find(key => 
+        key.toLowerCase() === "rate"
+      );
+
+      if (!clientsColumn) {
+        console.log("Client column not found in row:", row);
+        return;
+      }
+      
+      const clientName = row[clientsColumn];
+      const rate = rateColumn && row[rateColumn] ? parseFloat(row[rateColumn]) : 0;
+      
+      if (clientName && typeof clientName === 'string' && clientName.trim() !== '' && !clientNames.has(clientName)) {
         clientNames.add(clientName);
         clients.push({
-          name: String(clientName),
+          name: clientName.trim(),
           rate: isNaN(rate) ? 0 : rate,
         });
       }
@@ -107,6 +120,7 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
       return;
     }
 
+    // Expected columns: "Clients" and "Sub Client"
     // Map client names to IDs
     const clientMap = new Map(clients.map(client => [client.name.toLowerCase(), client.id]));
     
@@ -115,12 +129,27 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
     const invalidRows: number[] = [];
     
     data.forEach((row, index) => {
-      // Get client name from column C (index 2) and subclient from column D (index 3)
-      const clientName = String(row[2] || "").toLowerCase(); // C column
-      const subClientName = row[3]; // D column
+      // Find the client and subclient columns
+      const clientsColumn = Object.keys(row).find(key => 
+        key.toLowerCase() === "clients" || 
+        key.toLowerCase() === "client"
+      );
+      
+      const subClientColumn = Object.keys(row).find(key => 
+        key.toLowerCase() === "sub client" || 
+        key.toLowerCase() === "subclient"
+      );
+      
+      if (!clientsColumn || !subClientColumn) {
+        invalidRows.push(index + 2); // +2 for human-readable row numbers (1-indexed + header)
+        return;
+      }
+      
+      const clientName = row[clientsColumn] ? String(row[clientsColumn]).trim().toLowerCase() : "";
+      const subClientName = row[subClientColumn] ? String(row[subClientColumn]).trim() : "";
       
       if (!clientName || !subClientName) {
-        invalidRows.push(index + 2); // +2 for human-readable row numbers (1-indexed + header)
+        invalidRows.push(index + 2);
         return;
       }
       
@@ -129,10 +158,11 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
       if (clientId && !subClientMap.has(`${clientId}-${subClientName}`)) {
         subClientMap.add(`${clientId}-${subClientName}`);
         validSubClients.push({
-          name: String(subClientName),
+          name: subClientName,
           clientId,
         });
       } else if (!clientId) {
+        console.log(`Row ${index + 2}: Client "${clientName}" not found in the system`);
         invalidRows.push(index + 2);
       }
     });
@@ -172,53 +202,129 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
     const validEntries: Omit<WorkEntry, "id">[] = [];
     const invalidRows: number[] = [];
     
+    // Expected columns based on the image: 
+    // Date, Clients, Sub Client, Project, Task Description, Hours, Bill, Invoiced, Rate, Paid
+    
+    console.log("Processing work entries. Available clients:", clients.map(c => c.name));
+    console.log("Available subclients:", subClients.map(sc => ({ 
+      name: sc.name, 
+      clientId: sc.clientId,
+      clientName: clients.find(c => c.id === sc.clientId)?.name 
+    })));
+    
     data.forEach((row, index) => {
       try {
-        if (!row[2] || !row[3]) { // If C or D column is empty, skip
+        // Find the columns by name (case-insensitive)
+        const dateColumn = Object.keys(row).find(key => 
+          key.toLowerCase() === "date"
+        );
+        const clientsColumn = Object.keys(row).find(key => 
+          key.toLowerCase() === "clients" || 
+          key.toLowerCase() === "client"
+        );
+        const subClientColumn = Object.keys(row).find(key => 
+          key.toLowerCase() === "sub client" || 
+          key.toLowerCase() === "subclient"
+        );
+        const projectColumn = Object.keys(row).find(key => 
+          key.toLowerCase() === "project"
+        );
+        const taskDescColumn = Object.keys(row).find(key => 
+          key.toLowerCase() === "task description" ||
+          key.toLowerCase() === "taskdescription" ||
+          key.toLowerCase() === "description"
+        );
+        const hoursColumn = Object.keys(row).find(key => 
+          key.toLowerCase() === "hours"
+        );
+        const billColumn = Object.keys(row).find(key => 
+          key.toLowerCase() === "bill"
+        );
+        const invoicedColumn = Object.keys(row).find(key => 
+          key.toLowerCase() === "invoiced"
+        );
+        const rateColumn = Object.keys(row).find(key => 
+          key.toLowerCase() === "rate"
+        );
+        const paidColumn = Object.keys(row).find(key => 
+          key.toLowerCase() === "paid"
+        );
+        
+        // Log found columns for debugging
+        console.log(`Row ${index + 2}: Found columns:`, { 
+          dateColumn, 
+          clientsColumn, 
+          subClientColumn,
+          projectColumn,
+          taskDescColumn,
+          hoursColumn,
+          billColumn,
+          invoicedColumn,
+          rateColumn,
+          paidColumn
+        });
+        
+        // Required columns check
+        if (!dateColumn || !clientsColumn || !subClientColumn || !hoursColumn) {
+          console.log(`Row ${index + 2}: Missing required columns`);
           invalidRows.push(index + 2);
           return;
         }
         
-        // Map CSV columns to our data model
-        // B (date), C (Client), D (Subclient), E (project), F (notes), 
-        // H (hours), I (bill), J (invoice), K (rate), L (paid)
+        // Get values from the row
+        const dateValue = row[dateColumn];
+        const clientName = row[clientsColumn] ? String(row[clientsColumn]).trim().toLowerCase() : "";
+        const subClientName = row[subClientColumn] ? String(row[subClientColumn]).trim().toLowerCase() : "";
+        const project = projectColumn ? row[projectColumn] || "" : "";
+        const taskDescription = taskDescColumn ? row[taskDescColumn] || "" : "";
+        const hours = hoursColumn ? parseFloat(row[hoursColumn]) : 0;
+        const rate = rateColumn ? parseFloat(row[rateColumn]) : 0;
+        const invoiced = invoicedColumn ? String(row[invoicedColumn]).toLowerCase() === "yes" : false;
+        const paid = paidColumn ? String(row[paidColumn]).toLowerCase() === "yes" : false;
         
-        const dateValue = row[1]; // B column
-        const clientName = String(row[2] || "").toLowerCase(); // C column
-        const subClientName = String(row[3] || "").toLowerCase(); // D column
-        const project = row[4] || ""; // E column
-        const notes = row[5] || ""; // F column
-        const hours = parseFloat(row[7] || "0"); // H column
-        const rate = parseFloat(row[10] || "0"); // K column
-        const invoiced = String(row[9] || "").toLowerCase() === "yes"; // J column
-        const paid = String(row[11] || "").toLowerCase() === "yes"; // L column
+        console.log(`Row ${index + 2}: Parsed values:`, { 
+          dateValue, 
+          clientName, 
+          subClientName,
+          project,
+          taskDescription,
+          hours,
+          rate,
+          invoiced,
+          paid
+        });
         
-        // Parse date - handle different formats
+        // Parse date
         let date: Date;
         try {
-          if (typeof dateValue !== 'string' || !dateValue) {
-            throw new Error("Invalid date");
+          if (!dateValue) {
+            throw new Error("Missing date value");
           }
           
           // Try to parse as DD/MM/YYYY
-          const dateOnly = dateValue.split(' ')[0]; // Extract date part in case of "DD/MM/YYYY HH:MM"
-          const dateParts = dateOnly.split(/[\/\-\.]/);
-          
-          if (dateParts.length === 3) {
-            // Handle both DD/MM/YYYY and MM/DD/YYYY based on reasonable ranges
-            const firstPart = parseInt(dateParts[0]);
-            const secondPart = parseInt(dateParts[1]);
+          if (typeof dateValue === 'string') {
+            const dateOnly = dateValue.split(' ')[0]; // Extract date part
+            const dateParts = dateOnly.split(/[\/\-\.]/);
             
-            if (firstPart > 12) { // First part must be day
-              date = new Date(`${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`); // YYYY-MM-DD
-            } else if (firstPart <= 31 && secondPart <= 12) {
-              date = new Date(`${dateParts[2]}-${secondPart}-${firstPart}`); // YYYY-MM-DD
+            if (dateParts.length === 3) {
+              const firstPart = parseInt(dateParts[0]);
+              const secondPart = parseInt(dateParts[1]);
+              
+              if (firstPart > 12) { // First part must be day
+                date = new Date(`${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`); // YYYY-MM-DD
+              } else if (firstPart <= 31 && secondPart <= 12) {
+                date = new Date(`${dateParts[2]}-${secondPart}-${firstPart}`); // YYYY-MM-DD
+              } else {
+                date = new Date(`${dateParts[2]}-${firstPart}-${secondPart}`); // YYYY-MM-DD
+              }
             } else {
-              date = new Date(`${dateParts[2]}-${firstPart}-${secondPart}`); // YYYY-MM-DD
+              // Try as direct date string
+              date = new Date(dateValue);
             }
+          } else if (dateValue instanceof Date) {
+            date = dateValue;
           } else {
-            // Try as direct date string
-            date = new Date(dateValue);
+            throw new Error("Invalid date format");
           }
           
           // Check if date is valid
@@ -226,18 +332,20 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
             throw new Error("Invalid date");
           }
         } catch (error) {
-          date = new Date(); // Default to current date if parsing fails
-          console.log(`Row ${index + 2}: Could not parse date "${dateValue}", using today's date instead.`);
+          console.log(`Row ${index + 2}: Date parsing error:`, error);
+          date = new Date(); // Default to current date
+          console.log(`Row ${index + 2}: Using today's date instead of "${dateValue}"`);
         }
         
+        // Find clientId
         const clientId = clientMap.get(clientName);
         if (!clientId) {
-          console.log(`Row ${index + 2}: Client "${clientName}" not found`);
+          console.log(`Row ${index + 2}: Client "${clientName}" not found in the system`);
           invalidRows.push(index + 2);
           return;
         }
         
-        // Find subClientId using the combined key
+        // Find subClientId
         const subClientId = subClientMap.get(`${clientName}-${subClientName}`);
         if (!subClientId) {
           console.log(`Row ${index + 2}: SubClient "${subClientName}" not found for client "${clientName}"`);
@@ -247,27 +355,31 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
         
         // Validate hours
         if (isNaN(hours) || hours <= 0) {
-          console.log(`Row ${index + 2}: Invalid hours value "${row[7]}"`);
+          console.log(`Row ${index + 2}: Invalid hours value "${row[hoursColumn]}"`);
           invalidRows.push(index + 2);
           return;
         }
         
-        // Create work entry
-        const bill = hours * rate;
+        // Calculate bill if not provided
+        const bill = billColumn && row[billColumn] ? parseFloat(row[billColumn]) : hours * rate;
         
+        // Create work entry
         validEntries.push({
           date,
           clientId,
           subClientId,
           project: String(project),
-          taskDescription: String(notes),
+          taskDescription: String(taskDescription),
           fileAttachments: [],
           hours,
           rate,
-          bill,
+          bill: isNaN(bill) ? hours * rate : bill,
           invoiced,
           paid,
         });
+        
+        console.log(`Row ${index + 2}: Successfully created work entry`);
+        
       } catch (error) {
         console.log(`Error processing row ${index + 2}:`, error);
         invalidRows.push(index + 2);
