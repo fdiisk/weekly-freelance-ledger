@@ -42,6 +42,7 @@ const Clients: React.FC = () => {
     deleteSubClient,
   } = useApp();
 
+  const [activeTab, setActiveTab] = useState("clients");
   const [isClientDialogOpen, setIsClientDialogOpen] = useState(false);
   const [isSubClientDialogOpen, setIsSubClientDialogOpen] = useState(false);
   const [selectedClient, setSelectedClient] = useState<Client | undefined>(undefined);
@@ -108,25 +109,25 @@ const Clients: React.FC = () => {
 
   return (
     <PageLayout title="Client Management">
-      <Tabs defaultValue="clients">
+      <Tabs defaultValue="clients" onValueChange={setActiveTab}>
         <div className="flex items-center justify-between mb-4">
           <TabsList>
             <TabsTrigger value="clients">Clients</TabsTrigger>
             <TabsTrigger value="subclients">Sub-Clients</TabsTrigger>
           </TabsList>
           <div>
-            <Tabs.Value value="clients">
+            {activeTab === "clients" && (
               <Button onClick={handleAddClient}>
                 <PlusIcon className="mr-2 h-4 w-4" />
                 Add Client
               </Button>
-            </Tabs.Value>
-            <Tabs.Value value="subclients">
+            )}
+            {activeTab === "subclients" && (
               <Button onClick={handleAddSubClient} disabled={clients.length === 0}>
                 <PlusIcon className="mr-2 h-4 w-4" />
                 Add Sub-Client
               </Button>
-            </Tabs.Value>
+            )}
           </div>
         </div>
 
