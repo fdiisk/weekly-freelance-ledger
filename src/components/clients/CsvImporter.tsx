@@ -1,4 +1,3 @@
-
 import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Upload } from "lucide-react";
@@ -32,7 +31,7 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
     setIsImporting(true);
 
     Papa.parse(file, {
-      header: true, // Changed to true to use column names
+      header: true,
       skipEmptyLines: true,
       complete: (results) => {
         if (results.errors.length) {
@@ -187,214 +186,198 @@ const CsvImporter: React.FC<CsvImporterProps> = ({
       return;
     }
 
-    // Create lookup maps
-    const clientMap = new Map(clients.map(client => [client.name.toLowerCase(), client.id]));
-    const subClientMap = new Map();
+    // Create lookup maps for clients and subclients
+    const clientMap = new Map<string, string>(); // clientName -> clientId
+    const subClientMap = new Map<string, string>(); // clientName-subClientName -> subClientId
     
-    // Populate sub-client map with clientId-subClientName -> subClientId
+    // Populate client map
+    clients.forEach(client => {
+      clientMap.set(client.name.toLowerCase(), client.id);
+    });
+    
+    // Populate sub-client map
     subClients.forEach(sc => {
       const client = clients.find(c => c.id === sc.clientId);
       if (client) {
-        subClientMap.set(`${client.name.toLowerCase()}-${sc.name.toLowerCase()}`, sc.id);
+        const key = `${client.name.toLowerCase()}-${sc.name.toLowerCase()}`;
+        subClientMap.set(key, sc.id);
       }
     });
+    
+    console.log("Available clients:", clients.map(c => c.name));
+    console.log("Available subclients:", subClients.map(sc => ({
+      name: sc.name,
+      clientName: clients.find(c => c.id === sc.clientId)?.name
+    })));
     
     const validEntries: Omit<WorkEntry, "id">[] = [];
     const invalidRows: number[] = [];
     
-    // Expected columns based on the image: 
-    // Date, Clients, Sub Client, Project, Task Description, Hours, Bill, Invoiced, Rate, Paid
-    
-    console.log("Processing work entries. Available clients:", clients.map(c => c.name));
-    console.log("Available subclients:", subClients.map(sc => ({ 
-      name: sc.name, 
-      clientId: sc.clientId,
-      clientName: clients.find(c => c.id === sc.clientId)?.name 
-    })));
-    
+    // Process each row in the CSV data
     data.forEach((row, index) => {
       try {
-        // Find the columns by name (case-insensitive)
-        const dateColumn = Object.keys(row).find(key => 
-          key.toLowerCase() === "date"
-        );
-        const clientsColumn = Object.keys(row).find(key => 
-          key.toLowerCase() === "clients" || 
-          key.toLowerCase() === "client"
-        );
-        const subClientColumn = Object.keys(row).find(key => 
-          key.toLowerCase() === "sub client" || 
-          key.toLowerCase() === "subclient"
-        );
-        const projectColumn = Object.keys(row).find(key => 
-          key.toLowerCase() === "project"
-        );
-        const taskDescColumn = Object.keys(row).find(key => 
-          key.toLowerCase() === "task description" ||
-          key.toLowerCase() === "taskdescription" ||
-          key.toLowerCase() === "description"
-        );
-        const hoursColumn = Object.keys(row).find(key => 
-          key.toLowerCase() === "hours"
-        );
-        const billColumn = Object.keys(row).find(key => 
-          key.toLowerCase() === "bill"
-        );
-        const invoicedColumn = Object.keys(row).find(key => 
-          key.toLowerCase() === "invoiced"
-        );
-        const rateColumn = Object.keys(row).find(key => 
-          key.toLowerCase() === "rate"
-        );
-        const paidColumn = Object.keys(row).find(key => 
-          key.toLowerCase() === "paid"
-        );
-        
-        // Log found columns for debugging
-        console.log(`Row ${index + 2}: Found columns:`, { 
-          dateColumn, 
-          clientsColumn, 
-          subClientColumn,
-          projectColumn,
-          taskDescColumn,
-          hoursColumn,
-          billColumn,
-          invoicedColumn,
-          rateColumn,
-          paidColumn
-        });
-        
-        // Required columns check
-        if (!dateColumn || !clientsColumn || !subClientColumn || !hoursColumn) {
-          console.log(`Row ${index + 2}: Missing required columns`);
-          invalidRows.push(index + 2);
+        // Skip rows without required data
+        if (!row || !Object.keys(row).length) {
+          invalidRows.push(index + 2); // +2 for 1-indexed + header row
           return;
         }
         
-        // Get values from the row
-        const dateValue = row[dateColumn];
-        const clientName = row[clientsColumn] ? String(row[clientsColumn]).trim().toLowerCase() : "";
-        const subClientName = row[subClientColumn] ? String(row[subClientColumn]).trim().toLowerCase() : "";
-        const project = projectColumn ? row[projectColumn] || "" : "";
-        const taskDescription = taskDescColumn ? row[taskDescColumn] || "" : "";
-        const hours = hoursColumn ? parseFloat(row[hoursColumn]) : 0;
-        const rate = rateColumn ? parseFloat(row[rateColumn]) : 0;
-        const invoiced = invoicedColumn ? String(row[invoicedColumn]).toLowerCase() === "yes" : false;
-        const paid = paidColumn ? String(row[paidColumn]).toLowerCase() === "yes" : false;
+        console.log(`Processing row ${index + 1}:`, row);
         
-        console.log(`Row ${index + 2}: Parsed values:`, { 
-          dateValue, 
-          clientName, 
-          subClientName,
-          project,
-          taskDescription,
-          hours,
-          rate,
-          invoiced,
-          paid
+        // Extract values from the row regardless of column case
+        const dateValue = row["Date"] || row["DATE"] || row["date"] || "";
+        const clientName = row["Clients"] || row["CLIENT"] || row["Client"] || row["clients"] || "";
+        const subClientName = row["Sub Client"] || row["SUB CLIENT"] || row["SubClient"] || row["sub client"] || "";
+        const project = row["Project"] || row["PROJECT"] || row["project"] || "";
+        const taskDescription = row["Task Description"] || row["TASK DESCRIPTION"] || 
+                               row["TaskDescription"] || row["task description"] || row["Description"] || "";
+        const hoursStr = row["Hours"] || row["HOURS"] || row["hours"] || "";
+        const billStr = row["Bill"] || row["BILL"] || row["bill"] || "";
+        const rateStr = row["Rate"] || row["RATE"] || row["rate"] || "";
+        const invoicedStr = row["Invoiced"] || row["INVOICED"] || row["invoiced"] || "";
+        const paidStr = row["Paid"] || row["PAID"] || row["paid"] || "";
+        
+        // Debug log for extracted values
+        console.log(`Row ${index + 2} extracted values:`, {
+          dateValue, clientName, subClientName, project, taskDescription,
+          hoursStr, billStr, rateStr, invoicedStr, paidStr
         });
+        
+        // Validate required fields
+        if (!dateValue || !clientName || !subClientName) {
+          console.log(`Row ${index + 2}: Missing required data (date, client, or subclient)`);
+          invalidRows.push(index + 2);
+          return;
+        }
         
         // Parse date
         let date: Date;
         try {
-          if (!dateValue) {
-            throw new Error("Missing date value");
-          }
-          
-          // Try to parse as DD/MM/YYYY
+          // Try different date formats
           if (typeof dateValue === 'string') {
-            const dateOnly = dateValue.split(' ')[0]; // Extract date part
-            const dateParts = dateOnly.split(/[\/\-\.]/);
-            
-            if (dateParts.length === 3) {
-              const firstPart = parseInt(dateParts[0]);
-              const secondPart = parseInt(dateParts[1]);
-              
-              if (firstPart > 12) { // First part must be day
-                date = new Date(`${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`); // YYYY-MM-DD
-              } else if (firstPart <= 31 && secondPart <= 12) {
-                date = new Date(`${dateParts[2]}-${secondPart}-${firstPart}`); // YYYY-MM-DD
+            // Try MM/DD/YYYY or DD/MM/YYYY
+            if (dateValue.includes('/')) {
+              const parts = dateValue.split('/');
+              if (parts.length === 3) {
+                const month = parseInt(parts[0]);
+                const day = parseInt(parts[1]);
+                const year = parseInt(parts[2]);
+                date = new Date(year, month - 1, day);
               } else {
-                date = new Date(`${dateParts[2]}-${firstPart}-${secondPart}`); // YYYY-MM-DD
+                date = new Date(dateValue);
               }
-            } else {
-              // Try as direct date string
+            } 
+            // Try YYYY-MM-DD
+            else if (dateValue.includes('-')) {
               date = new Date(dateValue);
             }
-          } else if (dateValue instanceof Date) {
-            date = dateValue;
+            else {
+              // Try Excel serial number date
+              const excelSerialDate = parseInt(dateValue);
+              if (!isNaN(excelSerialDate)) {
+                // Excel dates start at January 0, 1900
+                date = new Date(Date.UTC(1899, 11, 30 + excelSerialDate));
+              } else {
+                date = new Date(dateValue);
+              }
+            }
           } else {
-            throw new Error("Invalid date format");
+            date = new Date();
           }
           
-          // Check if date is valid
+          // Validate date
           if (isNaN(date.getTime())) {
-            throw new Error("Invalid date");
+            console.log(`Row ${index + 2}: Invalid date "${dateValue}"`);
+            date = new Date(); // Fallback to today
           }
         } catch (error) {
           console.log(`Row ${index + 2}: Date parsing error:`, error);
-          date = new Date(); // Default to current date
-          console.log(`Row ${index + 2}: Using today's date instead of "${dateValue}"`);
+          date = new Date();
         }
         
-        // Find clientId
-        const clientId = clientMap.get(clientName);
+        // Get client ID
+        const clientId = clientMap.get(clientName.toLowerCase());
         if (!clientId) {
-          console.log(`Row ${index + 2}: Client "${clientName}" not found in the system`);
+          console.log(`Row ${index + 2}: Client "${clientName}" not found`);
           invalidRows.push(index + 2);
           return;
         }
         
-        // Find subClientId
-        const subClientId = subClientMap.get(`${clientName}-${subClientName}`);
+        // Get subclient ID
+        const key = `${clientName.toLowerCase()}-${subClientName.toLowerCase()}`;
+        const subClientId = subClientMap.get(key);
         if (!subClientId) {
           console.log(`Row ${index + 2}: SubClient "${subClientName}" not found for client "${clientName}"`);
           invalidRows.push(index + 2);
           return;
         }
         
-        // Validate hours
+        // Parse hours
+        const hours = parseFloat(hoursStr);
         if (isNaN(hours) || hours <= 0) {
-          console.log(`Row ${index + 2}: Invalid hours value "${row[hoursColumn]}"`);
+          console.log(`Row ${index + 2}: Invalid hours "${hoursStr}"`);
           invalidRows.push(index + 2);
           return;
         }
         
-        // Calculate bill if not provided
-        const bill = billColumn && row[billColumn] ? parseFloat(row[billColumn]) : hours * rate;
+        // Parse rate
+        const rate = parseFloat(rateStr);
+        if (isNaN(rate)) {
+          // If rate is not provided or invalid, use client's default rate
+          const client = clients.find(c => c.id === clientId);
+          const defaultRate = client ? client.rate : 0;
+          console.log(`Row ${index + 2}: Using default client rate ${defaultRate}`);
+        }
+        
+        // Parse bill
+        let bill: number;
+        if (billStr && !isNaN(parseFloat(billStr))) {
+          bill = parseFloat(billStr);
+        } else {
+          // Calculate bill from hours and rate
+          const useRate = !isNaN(rate) ? rate : 
+            clients.find(c => c.id === clientId)?.rate || 0;
+          bill = hours * useRate;
+          console.log(`Row ${index + 2}: Calculated bill ${bill} from hours ${hours} and rate ${useRate}`);
+        }
+        
+        // Parse boolean fields
+        const invoiced = /true|yes|y|1/i.test(invoicedStr.toString());
+        const paid = /true|yes|y|1/i.test(paidStr.toString());
         
         // Create work entry
-        validEntries.push({
+        const entry: Omit<WorkEntry, "id"> = {
           date,
           clientId,
           subClientId,
-          project: String(project),
-          taskDescription: String(taskDescription),
+          project: project ? String(project) : "",
+          taskDescription: taskDescription ? String(taskDescription) : "",
           fileAttachments: [],
           hours,
-          rate,
-          bill: isNaN(bill) ? hours * rate : bill,
+          rate: !isNaN(rate) ? rate : clients.find(c => c.id === clientId)?.rate || 0,
+          bill,
           invoiced,
           paid,
-        });
+        };
         
-        console.log(`Row ${index + 2}: Successfully created work entry`);
+        validEntries.push(entry);
+        console.log(`Row ${index + 2}: Successfully created work entry`, entry);
         
       } catch (error) {
-        console.log(`Error processing row ${index + 2}:`, error);
+        console.error(`Error processing row ${index + 2}:`, error);
         invalidRows.push(index + 2);
       }
     });
-    
-    if (invalidRows.length) {
-      toast.warning(`Skipped ${invalidRows.length} invalid rows (rows: ${invalidRows.length > 10 ? invalidRows.slice(0, 10).join(", ") + "..." : invalidRows.join(", ")})`);
-    }
     
     if (validEntries.length) {
       onImportWorkEntries(validEntries);
       toast.success(`Successfully imported ${validEntries.length} work entries`);
     } else {
       toast.error("No valid work entries found in CSV file");
+    }
+    
+    if (invalidRows.length) {
+      toast.warning(`Skipped ${invalidRows.length} invalid rows (rows: ${invalidRows.length > 10 ? invalidRows.slice(0, 10).join(", ") + "..." : invalidRows.join(", ")})`);
     }
   };
 
