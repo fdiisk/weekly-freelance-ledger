@@ -103,6 +103,13 @@ const Clients: React.FC = () => {
     setIsSubClientDialogOpen(false);
   };
 
+  const handleMultipleSubClientSubmit = (subClients: Omit<SubClient, "id">[]) => {
+    subClients.forEach(subClient => {
+      addSubClient(subClient);
+    });
+    setIsSubClientDialogOpen(false);
+  };
+
   const handleImportClients = (clientData: Omit<Client, "id">[]) => {
     clientData.forEach(client => {
       addClient(client);
@@ -282,6 +289,7 @@ const Clients: React.FC = () => {
             defaultValues={selectedSubClient}
             clients={clients}
             onSubmit={handleSubClientFormSubmit}
+            onMultipleSubmit={handleMultipleSubClientSubmit}
             onCancel={() => setIsSubClientDialogOpen(false)}
           />
         </DialogContent>
