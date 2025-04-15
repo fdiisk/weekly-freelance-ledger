@@ -1,3 +1,4 @@
+
 const handleWorkEntryImport = (data: any[]) => {
   if (!onImportWorkEntries || !clients || !subClients) return;
   
@@ -5,6 +6,9 @@ const handleWorkEntryImport = (data: any[]) => {
     toast.error("No data found in CSV file");
     return;
   }
+
+  console.log("Raw CSV data:", data);
+  console.log("First row:", data[0]);
 
   // Create lookup maps for clients and subclients
   const clientMap = new Map<string, string>(); // clientName (lowercased) -> clientId
@@ -43,19 +47,95 @@ const handleWorkEntryImport = (data: any[]) => {
       
       console.log(`Processing row ${index + 2}:`, row);
       
-      // Extract values using multiple possible header names to account for your CSV format
-      const dateValue = row["Date"] || row["DATE"] || row["date"] || "";
-      const clientName = row["Clients"] || row["CLIENT"] || row["Client"] || row["clients"] || "";
-      const subClientName = row["Sub Client"] || row["SUB CLIENT"] || row["SubClient"] || row["sub client"] || "";
-      const project = row["Project"] || row["PROJECT"] || row["project"] || "";
-      const taskDescription = row["Task Description"] || row["TASK DESCRIPTION"] || row["TaskDescription"] ||
-                              row["task description"] || row["Description"] || row["Notes/description"] || "";
-      const hoursStr = row["Hours"] || row["HOURS"] || row["hours"] || "";
-      const billStr = row["Bill"] || row["BILL"] || row["bill"] || "";
-      const invoicedStr = row["Invoiced"] || row["INVOICED"] || row["invoiced"] ||
-                          row["Invoic Yes/No"] || row["invoic yes/no"] || "";
-      const rateStr = row["Rate"] || row["RATE"] || row["rate"] || row["rate [derived from client]"] || "";
-      const paidStr = row["Paid"] || row["PAID"] || row["paid"] || "";
+      // Get column headers from the first row
+      const columnKeys = Object.keys(row);
+      
+      // Detect date column (could be "Date", "10/1/2025", etc.)
+      const dateColumn = columnKeys.find(key => 
+        key.toLowerCase().includes("date") || 
+        /\d{1,2}\/\d{1,2}\/\d{4}/.test(key)
+      );
+      
+      // Detect client column (look for columns that might contain client names)
+      const clientColumn = columnKeys.find(key => 
+        key.toLowerCase().includes("client") || 
+        key.toLowerCase() === "p&a"
+      );
+      
+      // Detect sub-client column
+      const subClientColumn = columnKeys.find(key => 
+        key.toLowerCase().includes("sub client") || 
+        key.toLowerCase() === "fairview"
+      );
+      
+      // Detect project column
+      const projectColumn = columnKeys.find(key => 
+        key.toLowerCase().includes("project") || 
+        key.toLowerCase() === "graphic design"
+      );
+      
+      // Detect description column
+      const descriptionColumn = columnKeys.find(key => 
+        key.toLowerCase().includes("description") || 
+        key.toLowerCase().includes("task") ||
+        key.toLowerCase() === "asset collection and export"
+      );
+      
+      // Detect hours column
+      const hoursColumn = columnKeys.find(key => 
+        key.toLowerCase().includes("hours") || 
+        key.toLowerCase() === "1.5"
+      );
+      
+      // Try to find other columns
+      const billColumn = columnKeys.find(key => key.toLowerCase().includes("bill"));
+      const invoicedColumn = columnKeys.find(key => 
+        key.toLowerCase().includes("invoic") || 
+        key === "Yes"
+      );
+      const rateColumn = columnKeys.find(key => key.toLowerCase().includes("rate"));
+      const paidColumn = columnKeys.find(key => 
+        key.toLowerCase().includes("paid") || 
+        key === "Yes_1"
+      );
+      
+      console.log("Detected columns:", {
+        dateColumn,
+        clientColumn,
+        subClientColumn,
+        projectColumn,
+        descriptionColumn,
+        hoursColumn,
+        billColumn,
+        invoicedColumn,
+        rateColumn,
+        paidColumn
+      });
+      
+      // Extract values using detected column names
+      const dateValue = dateColumn ? row[dateColumn] : "";
+      const clientName = clientColumn ? row[clientColumn] : "";
+      const subClientName = subClientColumn ? row[subClientColumn] : "";
+      const project = projectColumn ? row[projectColumn] : "";
+      const taskDescription = descriptionColumn ? row[descriptionColumn] : "";
+      const hoursStr = hoursColumn ? row[hoursColumn] : "";
+      const billStr = billColumn ? row[billColumn] : "";
+      const invoicedStr = invoicedColumn ? row[invoicedColumn] : "";
+      const rateStr = rateColumn ? row[rateColumn] : "";
+      const paidStr = paidColumn ? row[paidColumn] : "";
+      
+      console.log(`Row ${index + 2} extracted values:`, {
+        dateValue,
+        clientName,
+        subClientName,
+        project,
+        taskDescription,
+        hoursStr,
+        billStr,
+        rateStr,
+        invoicedStr,
+        paidStr
+      });
       
       // Validate required fields: date, client, and subclient
       if (!dateValue || !clientName || !subClientName) {
@@ -67,20 +147,28 @@ const handleWorkEntryImport = (data: any[]) => {
       // Date parsing: first try the built-in parser (it can often handle strings like "10/1/2025 8:30 (GMT+1)")
       let date: Date = new Date(dateValue);
       if (isNaN(date.getTime())) {
-        // Fallback: if the date contains "/" try splitting and removing extra time info
-        if (dateValue.includes('/')) {
-          const parts = dateValue.split('/');
-          if (parts.length >= 3) {
-            const month = parseInt(parts[0]);
-            // Remove any time information from day part (e.g., "1 8:30 (GMT+1)")
-            const dayPart = parts[1].split(' ')[0];
-            const day = parseInt(dayPart);
-            // Extract year (in case it contains extra info, take the first token)
-            const yearPart = parts[2].trim().split(' ')[0];
-            const year = parseInt(yearPart);
+        // Fallback: try to parse dates like "25/03/2025 7:30 (GMT)"
+        if (typeof dateValue === 'string' && dateValue.includes('/')) {
+          const dateParts = dateValue.split(/[\s]/)[0].split('/');
+          if (dateParts.length >= 3) {
+            // Handle both DD/MM/YYYY and MM/DD/YYYY formats
+            const isMMDDYYYY = dateParts[0].length <= 2 && parseInt(dateParts[0]) <= 12;
+            
+            let day: number, month: number, year: number;
+            if (isMMDDYYYY) {
+              month = parseInt(dateParts[0]);
+              day = parseInt(dateParts[1]);
+              year = parseInt(dateParts[2]);
+            } else {
+              day = parseInt(dateParts[0]);
+              month = parseInt(dateParts[1]);
+              year = parseInt(dateParts[2]);
+            }
+            
             date = new Date(year, month - 1, day);
           }
         }
+        
         if (isNaN(date.getTime())) {
           console.log(`Row ${index + 2}: Invalid date "${dateValue}", defaulting to current date`);
           date = new Date();
@@ -90,7 +178,8 @@ const handleWorkEntryImport = (data: any[]) => {
       // Get client ID using case-insensitive mapping
       const clientId = clientMap.get(clientName.toLowerCase());
       if (!clientId) {
-        console.log(`Row ${index + 2}: Client "${clientName}" not found`);
+        console.log(`Row ${index + 2}: Client "${clientName}" not found. Available clients:`, 
+          clients.map(c => c.name));
         invalidRows.push(index + 2);
         return;
       }
@@ -100,38 +189,65 @@ const handleWorkEntryImport = (data: any[]) => {
       const subClientId = subClientMap.get(key);
       if (!subClientId) {
         console.log(`Row ${index + 2}: SubClient "${subClientName}" not found for client "${clientName}"`);
+        console.log("Available subclients:", subClients.map(sc => {
+          const client = clients.find(c => c.id === sc.clientId);
+          return `${client?.name}-${sc.name}`;
+        }));
         invalidRows.push(index + 2);
         return;
       }
       
       // Parse hours – must be a positive number
-      const hours = parseFloat(hoursStr);
+      let hours: number;
+      if (typeof hoursStr === 'number') {
+        hours = hoursStr;
+      } else {
+        hours = parseFloat(String(hoursStr).replace(',', '.'));
+      }
+      
       if (isNaN(hours) || hours <= 0) {
         console.log(`Row ${index + 2}: Invalid hours "${hoursStr}"`);
         invalidRows.push(index + 2);
         return;
       }
       
-      // Parse rate: if not valid, later use client's default rate
-      const rate = parseFloat(rateStr);
-      if (isNaN(rate)) {
+      // Parse rate: if not valid, use client's default rate
+      let rate: number;
+      if (typeof rateStr === 'number') {
+        rate = rateStr;
+      } else if (rateStr && !isNaN(parseFloat(String(rateStr)))) {
+        rate = parseFloat(String(rateStr));
+      } else {
         const client = clients.find(c => c.id === clientId);
-        console.log(`Row ${index + 2}: Invalid rate "${rateStr}", using client's default rate ${client?.rate || 0}`);
+        rate = client?.rate || 0;
+        console.log(`Row ${index + 2}: Using client's default rate ${rate}`);
       }
       
       // Parse bill: if not provided or invalid, calculate from hours and rate
       let bill: number;
-      if (billStr && !isNaN(parseFloat(billStr))) {
-        bill = parseFloat(billStr);
+      if (typeof billStr === 'number') {
+        bill = billStr;
+      } else if (billStr && !isNaN(parseFloat(String(billStr)))) {
+        bill = parseFloat(String(billStr));
       } else {
-        const useRate = !isNaN(rate) ? rate : (clients.find(c => c.id === clientId)?.rate || 0);
-        bill = hours * useRate;
-        console.log(`Row ${index + 2}: Calculated bill ${bill} from hours ${hours} and rate ${useRate}`);
+        bill = hours * rate;
+        console.log(`Row ${index + 2}: Calculated bill ${bill} from hours ${hours} and rate ${rate}`);
       }
       
       // Parse boolean fields for invoiced and paid
-      const invoiced = /true|yes|y|1/i.test(invoicedStr.toString());
-      const paid = /true|yes|y|1/i.test(paidStr.toString());
+      let invoiced = false;
+      if (typeof invoicedStr === 'boolean') {
+        invoiced = invoicedStr;
+      } else if (invoicedStr) {
+        invoiced = /true|yes|y|1/i.test(String(invoicedStr));
+      }
+      
+      let paid = false;
+      if (typeof paidStr === 'boolean') {
+        paid = paidStr;
+      } else if (paidStr) {
+        paid = /true|yes|y|1/i.test(String(paidStr));
+      }
       
       // Create work entry with the parsed and mapped data
       const entry: Omit<WorkEntry, "id"> = {
@@ -142,7 +258,7 @@ const handleWorkEntryImport = (data: any[]) => {
         taskDescription: taskDescription ? String(taskDescription) : "",
         fileAttachments: [],  // Assuming no file attachments come from CSV
         hours,
-        rate: !isNaN(rate) ? rate : (clients.find(c => c.id === clientId)?.rate || 0),
+        rate,
         bill,
         invoiced,
         paid,
